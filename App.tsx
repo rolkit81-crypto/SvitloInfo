@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { CITIES, AUTO_REFRESH_INTERVAL } from './constants';
-import { OutageInfo } from './types';
-import { fetchOutageInfo } from './services/geminiService';
+import { OutageInfo, NewsResult } from './types';
+import { fetchOutageInfo, fetchDailyNews } from './services/geminiService';
 import CitySelector from './components/CitySelector';
 import StatusDisplay from './components/StatusDisplay';
 
@@ -52,9 +53,13 @@ const IntroAnimation: React.FC<{ onComplete: () => void }> = ({ onComplete }) =>
 const App: React.FC = () => {
   const [selectedCityId, setSelectedCityId] = useState<string>('');
   const [outageData, setOutageData] = useState<OutageInfo | null>(null);
+  const [newsData, setNewsData] = useState<NewsResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [newsLoading, setNewsLoading] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [showIntro, setShowIntro] = useState<boolean>(true);
+  const [showAbout, setShowAbout] = useState<boolean>(false);
+  const [showNews, setShowNews] = useState<boolean>(false);
   
   // Initialize Telegram Mini App features
   useEffect(() => {
@@ -92,6 +97,18 @@ const App: React.FC = () => {
     setCountdown(AUTO_REFRESH_INTERVAL / 1000);
   }, []);
 
+  const loadNews = async () => {
+    if (!selectedCityId) return;
+    setNewsLoading(true);
+    setShowNews(true);
+    const city = CITIES.find(c => c.id === selectedCityId);
+    if (city) {
+        const news = await fetchDailyNews(city.nameUk);
+        setNewsData(news);
+    }
+    setNewsLoading(false);
+  };
+
   // Initialize from Local Storage
   useEffect(() => {
     const savedCity = localStorage.getItem('svitlo_city_id');
@@ -106,6 +123,7 @@ const App: React.FC = () => {
       localStorage.setItem('svitlo_city_id', selectedCityId);
       loadData(selectedCityId);
       setCountdown(AUTO_REFRESH_INTERVAL / 1000);
+      setNewsData(null); // Reset news when city changes
     }
   }, [selectedCityId, loadData]);
 
@@ -171,7 +189,8 @@ const App: React.FC = () => {
           <StatusDisplay data={outageData} loading={loading} />
 
           {selectedCityId && (
-            <div className="mt-8 w-full px-6 flex flex-col items-center gap-4 animate-slide-left" style={{ animationDelay: '0.2s' }}>
+            <div className="mt-8 w-full px-6 flex flex-col gap-3 animate-slide-left" style={{ animationDelay: '0.2s' }}>
+               {/* Main Refresh Button */}
                <button 
                  onClick={handleRefresh}
                  disabled={loading}
@@ -183,20 +202,138 @@ const App: React.FC = () => {
                  <span>{loading ? 'Оновлюємо дані...' : 'Перевірити зараз'}</span>
                </button>
                
-               <span className="text-zinc-600 text-xs font-medium bg-black px-3 py-1 rounded-full border border-zinc-900">
-                 Автооновлення через {formatCountdown(countdown)}
-               </span>
+               {/* News Button */}
+               <button 
+                 onClick={loadNews}
+                 className="group w-full bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800/50 hover:border-zinc-700 text-zinc-300 font-bold py-3 px-6 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-95"
+               >
+                 <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+                 </svg>
+                 <span>⚡ Новини за сьогодні</span>
+               </button>
+
+               <div className="text-center mt-2">
+                 <span className="text-zinc-600 text-xs font-medium bg-black px-3 py-1 rounded-full border border-zinc-900">
+                   Автооновлення через {formatCountdown(countdown)}
+                 </span>
+               </div>
             </div>
           )}
 
           <div className="mt-16 text-center px-8 pb-8">
-            <p className="text-zinc-600 text-[10px] uppercase tracking-widest font-bold mb-2">Про сервіс</p>
+             <button 
+                onClick={() => setShowAbout(true)}
+                className="text-zinc-600 text-[10px] uppercase tracking-widest font-bold mb-2 hover:text-zinc-400 transition-colors"
+             >
+                Про сервіс
+             </button>
             <p className="text-zinc-700 text-xs leading-relaxed max-w-xs mx-auto">
-              Дані генеруються ШІ на основі відкритих джерел (сайти Обленерго, новини). Можливі неточності. Перевіряйте офіційні канали.
+              Дані генеруються ШІ на основі відкритих джерел. 
             </p>
           </div>
         </main>
       </div>
+
+      {/* ABOUT MODAL */}
+      {showAbout && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 animate-cinematic-in">
+           <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setShowAbout(false)}></div>
+           <div className="relative w-full max-w-sm bg-zinc-900 rounded-[2.5rem] border border-zinc-800 p-8 shadow-2xl flex flex-col">
+               <button 
+                 onClick={() => setShowAbout(false)}
+                 className="absolute top-4 right-4 w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400"
+               >
+                  ✕
+               </button>
+               <h2 className="text-xl font-black text-white mb-4">Про Svitlo Info</h2>
+               <div className="prose prose-invert prose-sm text-zinc-400 leading-relaxed space-y-4">
+                  <p>
+                    Svitlo Info — це інструмент для моніторингу стану енергосистеми України в реальному часі.
+                  </p>
+                  <p>
+                    <strong className="text-white">Як це працює:</strong><br/>
+                    Ми використовуємо технологію Google Gemini Search Grounding. Штучний інтелект сканує офіційні сайти Обленерго, Telegram-канали та новини, щоб зібрати актуальні графіки.
+                  </p>
+                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-800">
+                    <strong className="text-yellow-500">Важливо:</strong>
+                    <p className="text-xs mt-1">Сервіс є інформаційним. ШІ може помилятися. Завжди перевіряйте дані в першоджерелах вашого оператора розподілу.</p>
+                  </div>
+               </div>
+           </div>
+        </div>
+      )}
+
+      {/* NEWS MODAL */}
+      {showNews && (
+        <div className="fixed inset-0 z-[150] flex items-start justify-center p-4 pt-20 animate-cinematic-in">
+           <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setShowNews(false)}></div>
+           <div className="relative w-full max-w-sm bg-zinc-900 rounded-[2.5rem] border border-zinc-800 shadow-2xl flex flex-col max-h-[80vh] overflow-hidden">
+               
+               <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900 z-10">
+                   <h2 className="text-lg font-black text-white flex items-center gap-2">
+                      ⚡ Новини
+                   </h2>
+                   <button 
+                     onClick={() => setShowNews(false)}
+                     className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:bg-zinc-700"
+                   >
+                      ✕
+                   </button>
+               </div>
+
+               <div className="overflow-y-auto p-6 custom-scrollbar">
+                  {newsLoading ? (
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                          <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+                          <p className="text-zinc-400 text-sm animate-pulse">Шукаємо новини за сьогодні...</p>
+                      </div>
+                  ) : newsData ? (
+                      <div className="space-y-6">
+                          <p className="text-zinc-300 italic text-sm border-l-2 border-blue-500 pl-3">
+                              {newsData.summary}
+                          </p>
+                          
+                          <div>
+                              <h3 className="text-xs font-black uppercase tracking-widest text-red-500 mb-3">
+                                  🇺🇦 Україна / Війна
+                              </h3>
+                              <ul className="space-y-3">
+                                  {newsData.war.map((item, idx) => (
+                                      <li key={idx} className="text-sm text-zinc-300 leading-relaxed bg-zinc-800/30 p-3 rounded-xl border border-zinc-800">
+                                          {item}
+                                      </li>
+                                  ))}
+                              </ul>
+                          </div>
+
+                          <div>
+                              <h3 className="text-xs font-black uppercase tracking-widest text-yellow-500 mb-3">
+                                  🏙️ {CITIES.find(c => c.id === selectedCityId)?.nameUk || 'Місцеві події'}
+                              </h3>
+                              <ul className="space-y-3">
+                                  {newsData.local.length > 0 ? newsData.local.map((item, idx) => (
+                                      <li key={idx} className="text-sm text-zinc-300 leading-relaxed bg-zinc-800/30 p-3 rounded-xl border border-zinc-800">
+                                          {item}
+                                      </li>
+                                  )) : (
+                                      <li className="text-zinc-500 text-xs">Суттєвих локальних новин не знайдено.</li>
+                                  )}
+                              </ul>
+                          </div>
+                          
+                          <div className="text-center pt-4">
+                              <p className="text-[10px] text-zinc-600">Оновлено: {new Date(newsData.lastUpdated).toLocaleTimeString()}</p>
+                          </div>
+                      </div>
+                  ) : (
+                      <div className="text-center py-10 text-zinc-500">Не вдалося завантажити новини.</div>
+                  )}
+               </div>
+           </div>
+        </div>
+      )}
+
     </div>
   );
 };
