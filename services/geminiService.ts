@@ -1,5 +1,6 @@
+
 import { GoogleGenAI } from "@google/genai";
-import { OutageInfo, PowerStatus, GroupData } from '../types';
+import { OutageInfo, PowerStatus, GroupData, NewsResult } from '../types';
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
@@ -73,6 +74,7 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
       1. Status: ON (Power is present/No schedule), MAYBE (Scheduled outage), OFF (Total Blackout).
       2. TimeRange: Only hours (e.g. "18:00-21:00") or "Графік відсутній".
       3. List ALL groups strictly.
+      4. Ignore lines that look like headers (e.g. GroupId|Status...).
       
       Example Output:
       Stabilization schedules are active today.
@@ -105,9 +107,15 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
       groups = lines.map(line => {
         // Normalize: remove start/end pipes if in markdown table format
         const cleanLine = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+        
+        // SKIP HEADERS or junk lines
+        if (cleanLine.toLowerCase().includes('groupid') || cleanLine.includes('---') || cleanLine.toLowerCase().includes('status')) {
+            return null;
+        }
+
         const [id, statusStr, description] = cleanLine.split('|').map(s => s?.trim());
         
-        // Skip empty lines or header junk
+        // Skip empty lines
         if (!id || !statusStr) return null;
 
         let status = PowerStatus.UNKNOWN;
@@ -197,14 +205,89 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
       sources: uniqueSources
     };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini API Error:", error);
+    
+    let errorSummary = "Не вдалося отримати дані. Спробуйте пізніше або перевірте з'єднання.";
+    
+    // Check for Rate Limit (429) or Quota Exceeded
+    if (error?.status === 429 || error?.message?.includes('429') || error?.toString().includes('429') || error?.message?.includes('quota')) {
+        errorSummary = "Сервіс перевантажений (Ліміт запитів). Будь ласка, зачекайте хвилину перед наступною спробою.";
+    }
+
     return {
       status: PowerStatus.UNKNOWN,
-      summary: "Не вдалося отримати дані. Спробуйте пізніше або перевірте з'єднання.",
+      summary: errorSummary,
       groups: [],
       lastUpdated: Date.now(),
       sources: []
+    };
+  }
+};
+
+export const fetchDailyNews = async (cityName: string): Promise<NewsResult> => {
+  try {
+    const modelId = 'gemini-2.5-flash';
+    const now = new Date();
+    const currentDateStr = now.toLocaleDateString('uk-UA', { 
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Kyiv' 
+    });
+
+    const prompt = `
+      Date: ${currentDateStr}.
+      Task: Provide a brief summary of key news for today in Ukraine and specifically in ${cityName}.
+      
+      Sections required:
+      1. WAR/GENERAL: Major events in Ukraine (max 3 bullet points).
+      2. LOCAL: Major events in ${cityName} (energy, incidents, important news) (max 3 bullet points).
+      
+      OUTPUT FORMAT:
+      Summary: [One sentence general summary]
+      ---WAR---
+      - Point 1
+      - Point 2
+      ---LOCAL---
+      - Point 1
+      - Point 2
+    `;
+
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        temperature: 0.3,
+      },
+    });
+
+    const text = response.text || '';
+    const [summaryPart, rest] = text.split('---WAR---');
+    const [warPart, localPart] = (rest || '').split('---LOCAL---');
+
+    const cleanPoints = (str: string) => 
+        str ? str.trim().split('\n').map(l => l.replace(/^- /, '').trim()).filter(l => l.length > 0) : [];
+
+    return {
+      summary: summaryPart.replace('Summary:', '').trim(),
+      war: cleanPoints(warPart),
+      local: cleanPoints(localPart),
+      lastUpdated: Date.now()
+    };
+
+  } catch (error: any) {
+    console.error("News API Error:", error);
+    
+    let errorSummary = "Не вдалося завантажити новини.";
+    // Check for Rate Limit (429)
+    if (error?.status === 429 || error?.message?.includes('429') || error?.toString().includes('429')) {
+        errorSummary = "Ліміт запитів вичерпано. Спробуйте пізніше.";
+    }
+
+    return {
+        summary: errorSummary,
+        war: [],
+        local: [],
+        lastUpdated: Date.now()
     };
   }
 };
