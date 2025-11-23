@@ -21,6 +21,12 @@ export interface GroupData {
 export interface OutageInfo {
   status: PowerStatus;
   summary: string;
+  weather: {
+    temp: string;
+    condition: string;
+    feelsLike: string;
+    windSpeed: string;
+  };
   groups: GroupData[];
   lastUpdated: number;
   sources: {
