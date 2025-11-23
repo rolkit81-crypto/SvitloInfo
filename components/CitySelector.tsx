@@ -76,16 +76,16 @@ const CitySelector: React.FC<CitySelectorProps> = ({ selectedCityId, onSelect, d
                         <button
                             key={city.id}
                             onClick={() => handleSelect(city.id)}
-                            className={`w-full text-left px-4 py-3 rounded-2xl font-bold transition-all duration-200 flex items-center justify-between mb-1 last:mb-0
+                            className={`w-full text-left px-5 py-4 rounded-xl font-bold transition-all duration-200 flex items-center justify-between mb-2 last:mb-0 group
                                 ${selectedCityId === city.id 
-                                    ? 'bg-zinc-800 text-yellow-500' 
-                                    : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'
+                                    ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-black shadow-[0_0_25px_rgba(234,179,8,0.4)] scale-[1.02] ring-1 ring-yellow-300 z-10' 
+                                    : 'text-zinc-400 hover:text-white hover:bg-white/10 hover:pl-7 hover:scale-[1.02] hover:shadow-md border border-transparent hover:border-white/5'
                                 }`
                             }
                         >
-                            <span>{city.nameUk}</span>
+                            <span className="relative z-10">{city.nameUk}</span>
                             {selectedCityId === city.id && (
-                                <svg className="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-5 h-5 text-black drop-shadow-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                                 </svg>
                             )}
