@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { OutageInfo, PowerStatus, GroupData } from '../types';
 
