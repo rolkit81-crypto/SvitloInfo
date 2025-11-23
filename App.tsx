@@ -1,339 +1,320 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { CITIES, AUTO_REFRESH_INTERVAL } from './constants';
-import { OutageInfo, NewsResult } from './types';
-import { fetchOutageInfo, fetchDailyNews } from './services/geminiService';
+import { OutageInfo, PowerStatus } from './types';
+import { fetchOutageInfo } from './services/geminiService';
 import CitySelector from './components/CitySelector';
 import StatusDisplay from './components/StatusDisplay';
 
-// --- Intro Animation Component ---
+// --- ERROR BOUNDARY COMPONENT ---
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(_: Error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  handleRetry = () => {
+    this.setState({ hasError: false });
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full max-w-md bg-zinc-900/80 backdrop-blur-xl border border-red-500/20 rounded-[2.5rem] p-10 text-center flex flex-col items-center animate-slide-left shadow-2xl">
+          <div className="w-20 h-20 mb-6 text-red-500 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20">
+            <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10">
+              <path d="M12 9V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <circle cx="12" cy="18" r="1" fill="currentColor"/>
+              <path d="M12 3L2 21H22L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <h2 className="text-2xl font-black text-white mb-3 tracking-tight">Щось пішло не так</h2>
+          <p className="text-zinc-400 text-sm mb-8 leading-relaxed">
+            Виникла неочікувана помилка при відображенні інтерфейсу. Ми вже працюємо над цим.
+          </p>
+          <button
+            onClick={this.handleRetry}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/20 active:scale-95 transition-all uppercase tracking-widest text-xs"
+          >
+            Перезавантажити
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+const MemoizedCitySelector = memo(CitySelector);
+const MemoizedStatusDisplay = memo(StatusDisplay);
+
+const AutoRefreshTimer: React.FC<{ onRefreshTrigger: () => void; isActive: boolean; }> = ({ onRefreshTrigger, isActive }) => {
+  const [timeLeft, setTimeLeft] = useState(AUTO_REFRESH_INTERVAL / 1000);
+  useEffect(() => {
+    if (!isActive) return;
+    const timer = setInterval(() => {
+      setTimeLeft(p => {
+        if (p <= 1) { onRefreshTrigger(); return AUTO_REFRESH_INTERVAL / 1000; }
+        return p - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isActive, onRefreshTrigger]);
+  if (!isActive) return null;
+  return <div className="text-[10px] text-zinc-600 font-bold mt-2">Оновлення через {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</div>;
+};
+
 const IntroAnimation: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
-  const [isExiting, setIsExiting] = useState(false);
+  const [stage, setStage] = useState<'in' | 'hold' | 'out'>('in');
 
   useEffect(() => {
-    // 1. Start exit animation after 800ms
-    const exitTimer = setTimeout(() => {
-      setIsExiting(true);
-    }, 800);
-    
-    // 2. Complete and unmount after total 1300ms
-    const completeTimer = setTimeout(() => {
-      onComplete();
-    }, 1300);
-
-    return () => {
-      clearTimeout(exitTimer);
-      clearTimeout(completeTimer);
-    };
-  }, []); // Empty dependency array ensures this runs ONLY ONCE on mount
+    const t1 = setTimeout(() => setStage('hold'), 800);
+    const t2 = setTimeout(() => setStage('out'), 1800);
+    const t3 = setTimeout(onComplete, 2400);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [onComplete]);
 
   return (
     <div 
-      onClick={onComplete} // Allow user to tap to skip immediately
-      className={`fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center cursor-pointer`}
+      className={`fixed inset-0 z-[9999] bg-black flex items-center justify-center cursor-pointer transition-opacity duration-500 ${stage === 'out' ? 'opacity-0' : 'opacity-100'}`}
+      onClick={onComplete}
     >
-      {/* Container handles the exit animation (fade out/zoom) */}
-      <div className={`flex flex-col items-center ${isExiting ? 'animate-cinematic-out' : 'animate-cinematic-in'}`}>
-         <div className="flex items-center gap-4 mb-2">
-            <div className="w-12 h-12 bg-zinc-900 rounded-2xl border border-zinc-800 flex items-center justify-center shadow-2xl relative overflow-hidden">
-               <div className="absolute inset-0 bg-yellow-500/10"></div>
-               <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-               </svg>
-            </div>
-            <h1 className="text-5xl font-black text-white tracking-tighter">
-              Svitlo<span className="text-yellow-500">.</span>Info
-            </h1>
-         </div>
+      <div className={`flex flex-col items-center ${stage === 'in' ? 'animate-cinematic-in' : stage === 'out' ? 'animate-cinematic-out' : ''}`}>
+        <div className="w-20 h-20 mb-6 relative">
+             <div className="absolute inset-0 bg-yellow-500 rounded-full blur-[40px] opacity-40 animate-pulse"></div>
+             <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-yellow-500 relative z-10">
+                <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="currentColor" />
+             </svg>
+        </div>
+        <h1 className="text-4xl font-black text-white tracking-tighter">
+          Svitlo<span className="text-yellow-500">.</span>Info
+        </h1>
+        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] mt-2">
+            Loading System
+        </p>
       </div>
     </div>
   );
 };
 
+// --- ICONS FOR NAV BAR ---
+const IconHome = ({ active, colorClass }: { active: boolean, colorClass: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" className={`w-6 h-6 transition-all duration-500 ${active ? `${colorClass} scale-110 drop-shadow-md` : 'text-zinc-500 scale-100'}`}>
+    <path d="M3 9.5L12 3L21 9.5V20.5C21 21.0523 20.5523 21.5 20 21.5H4C3.44772 21.5 3 21.0523 3 20.5V9.5Z" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round"/>
+    {active && <path d="M12 14L12 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>}
+  </svg>
+);
+
+const IconAbout = ({ active, colorClass }: { active: boolean, colorClass: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" className={`w-6 h-6 transition-all duration-500 ${active ? `${colorClass} scale-110 drop-shadow-md` : 'text-zinc-500 scale-100'}`}>
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth={active ? 2.5 : 2}/>
+    <path d="M12 16V12" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round"/>
+    <path d="M12 8H12.01" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round"/>
+  </svg>
+);
+
 const App: React.FC = () => {
+  const [showIntro, setShowIntro] = useState(true);
+  const [activeTab, setActiveTab] = useState<'home' | 'about'>('home');
+  
   const [selectedCityId, setSelectedCityId] = useState<string>('');
   const [outageData, setOutageData] = useState<OutageInfo | null>(null);
-  const [newsData, setNewsData] = useState<NewsResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [newsLoading, setNewsLoading] = useState<boolean>(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [showIntro, setShowIntro] = useState<boolean>(true);
-  const [showAbout, setShowAbout] = useState<boolean>(false);
-  const [showNews, setShowNews] = useState<boolean>(false);
   
-  // Initialize Telegram Mini App features
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand(); // Open full height
-      
-      // Set the Telegram header color to match our black theme
-      if (tg.setHeaderColor) {
-        tg.setHeaderColor('#000000');
-      }
-      if (tg.setBackgroundColor) {
-        tg.setBackgroundColor('#000000');
-      }
-    }
+    if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor('#000000'); tg.setBackgroundColor('#000000'); }
+    const saved = localStorage.getItem('svitlo_city_id');
+    if (saved && CITIES.some(c => c.id === saved)) setSelectedCityId(saved);
   }, []);
-  
-  // Stable callback to prevent re-renders from resetting the intro logic
-  const handleIntroComplete = useCallback(() => {
-    setShowIntro(false);
-  }, []);
-  
+
   const loadData = useCallback(async (cityId: string) => {
     if (!cityId) return;
-    
     setLoading(true);
     const city = CITIES.find(c => c.id === cityId);
-    if (city) {
-      const data = await fetchOutageInfo(city.nameUk);
-      setOutageData(data);
-    }
+    if (city) setOutageData(await fetchOutageInfo(city.nameUk));
     setLoading(false);
-    // Reset countdown for auto-refresh
-    setCountdown(AUTO_REFRESH_INTERVAL / 1000);
   }, []);
 
-  const loadNews = async () => {
-    if (!selectedCityId) return;
-    setNewsLoading(true);
-    setShowNews(true);
-    const city = CITIES.find(c => c.id === selectedCityId);
-    if (city) {
-        const news = await fetchDailyNews(city.nameUk);
-        setNewsData(news);
-    }
-    setNewsLoading(false);
-  };
-
-  // Initialize from Local Storage
-  useEffect(() => {
-    const savedCity = localStorage.getItem('svitlo_city_id');
-    if (savedCity && CITIES.some(c => c.id === savedCity)) {
-      setSelectedCityId(savedCity);
-    }
-  }, []);
-
-  // Effect to trigger load when city changes (and save to storage)
   useEffect(() => {
     if (selectedCityId) {
       localStorage.setItem('svitlo_city_id', selectedCityId);
       loadData(selectedCityId);
-      setCountdown(AUTO_REFRESH_INTERVAL / 1000);
-      setNewsData(null); // Reset news when city changes
     }
   }, [selectedCityId, loadData]);
 
-  // Timer for auto-refresh logic
-  useEffect(() => {
-    if (!selectedCityId) return;
+  let bgGradient1 = 'bg-blue-900/20';
+  let bgGradient2 = 'bg-yellow-900/10';
+  
+  // Navigation Bar Colors based on status
+  let navPillColor = 'bg-zinc-800/80 border-white/10';
+  let navIconColor = 'text-yellow-500';
 
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (typeof prev === 'number' && prev <= 1) {
-          loadData(selectedCityId);
-          return AUTO_REFRESH_INTERVAL / 1000;
-        }
-        return (prev !== null && prev > 0) ? prev - 1 : prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [selectedCityId, loadData]);
-
-  // Handle manual refresh
-  const handleRefresh = () => {
-    if (selectedCityId && !loading) {
-      loadData(selectedCityId);
-    }
-  };
-
-  const formatCountdown = (seconds: number | null) => {
-    if (seconds === null) return '--:--';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
+  if (outageData?.status === PowerStatus.ON) {
+      bgGradient1 = 'bg-emerald-900/30';
+      bgGradient2 = 'bg-green-600/10';
+      navPillColor = 'bg-green-900/80 border-green-500/30';
+      navIconColor = 'text-green-400';
+  } else if (outageData?.status === PowerStatus.OFF) {
+      bgGradient1 = 'bg-red-900/30';
+      bgGradient2 = 'bg-orange-900/10';
+      navPillColor = 'bg-red-900/80 border-red-500/30';
+      navIconColor = 'text-red-400';
+  } else if (outageData?.status === PowerStatus.MAYBE) {
+      // Keep default yellow for maybe/unknown
+      navPillColor = 'bg-yellow-900/80 border-yellow-500/30';
+      navIconColor = 'text-yellow-400';
+  }
 
   return (
-    <div className="min-h-screen w-full bg-black flex flex-col items-center relative selection:bg-yellow-500 selection:text-black overflow-x-hidden">
+    <div className="min-h-screen w-full bg-black text-white flex flex-col relative overflow-x-hidden selection:bg-yellow-500 selection:text-black font-sans">
       
-      {/* Intro Splash Screen */}
-      {showIntro && <IntroAnimation onComplete={handleIntroComplete} />}
+      {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
 
-      {/* Background Mesh Gradient Effect */}
-      <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-yellow-600/20 rounded-full blur-[120px]"></div>
+      {/* BACKGROUND */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden transition-colors duration-1000">
+          <div className={`absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full blur-[100px] animate-aurora mix-blend-screen transition-colors duration-1000 ${bgGradient1}`}></div>
+          <div className={`absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] rounded-full blur-[80px] animate-aurora mix-blend-screen transition-colors duration-1000 ${bgGradient2}`} style={{animationDelay: '-5s'}}></div>
       </div>
 
-      <div className={`relative z-10 w-full max-w-lg flex flex-col items-center px-4 py-12 transition-all duration-1000 delay-300 ${showIntro ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+      {/* TOP HEADER (Support Buttons) */}
+      <div className="fixed top-0 left-0 w-full z-40 p-4 flex justify-end gap-2 pointer-events-auto bg-gradient-to-b from-black/80 to-transparent">
+          <a href="https://t.me/SvitloInfo_news" target="_blank" className="bg-zinc-900/80 border border-white/10 px-3 py-1.5 rounded-full text-[9px] font-black uppercase text-blue-400 hover:bg-blue-900/20 transition-all backdrop-blur-md">
+              Офіційний Канал
+          </a>
+          <a href="https://donatello.to/OneFrameStudio" target="_blank" className="bg-zinc-900/80 border border-white/10 px-3 py-1.5 rounded-full text-[9px] font-black uppercase text-yellow-500 hover:bg-yellow-900/20 transition-all backdrop-blur-md">
+              Підтримати
+          </a>
+      </div>
+
+      {/* MAIN CONTENT AREA */}
+      <div className="relative z-10 w-full flex-1 flex flex-col items-center px-5 pt-20 pb-32 max-w-lg mx-auto">
         
-        {/* Header */}
-        <header className="text-center mb-10">
-          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight mb-2">
-            Svitlo<span className="text-yellow-500">.</span>Info
-          </h1>
-          <p className="text-zinc-500 font-medium">Дізнайся про відключення у своєму місті</p>
+        {/* LOGO */}
+        <header className="mb-6 text-center">
+            <h1 className="text-5xl font-black tracking-tighter mb-1 select-none">
+                Svitlo<span className="text-yellow-500">.</span>Info
+            </h1>
         </header>
 
-        <main className="w-full flex flex-col items-center">
-          <CitySelector 
-            selectedCityId={selectedCityId} 
-            onSelect={setSelectedCityId}
-            disabled={loading}
-          />
+        {/* --- VIEW: HOME --- */}
+        {activeTab === 'home' && (
+            <div className="w-full flex flex-col items-center animate-slide-left">
+                <ErrorBoundary>
+                    <MemoizedCitySelector selectedCityId={selectedCityId} onSelect={setSelectedCityId} disabled={loading} />
+                    
+                    <MemoizedStatusDisplay data={outageData} loading={loading && !outageData} />
 
-          <StatusDisplay data={outageData} loading={loading} />
-
-          {selectedCityId && (
-            <div className="mt-8 w-full px-6 flex flex-col gap-3 animate-slide-left" style={{ animationDelay: '0.2s' }}>
-               {/* Main Refresh Button */}
-               <button 
-                 onClick={handleRefresh}
-                 disabled={loading}
-                 className="group w-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-yellow-500/30 text-white font-bold py-4 px-6 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 shadow-lg active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-               >
-                 <svg className={`w-5 h-5 text-yellow-500 transition-transform duration-700 ${loading ? 'animate-spin' : 'group-hover:rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                 </svg>
-                 <span>{loading ? 'Оновлюємо дані...' : 'Перевірити зараз'}</span>
-               </button>
-               
-               {/* News Button */}
-               <button 
-                 onClick={loadNews}
-                 className="group w-full bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800/50 hover:border-zinc-700 text-zinc-300 font-bold py-3 px-6 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-95"
-               >
-                 <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
-                 </svg>
-                 <span>⚡ Новини за сьогодні</span>
-               </button>
-
-               <div className="text-center mt-2">
-                 <span className="text-zinc-600 text-xs font-medium bg-black px-3 py-1 rounded-full border border-zinc-900">
-                   Автооновлення через {formatCountdown(countdown)}
-                 </span>
-               </div>
+                    {selectedCityId && (
+                        <div className="w-full mt-6 flex flex-col gap-3">
+                            <button 
+                                onClick={() => loadData(selectedCityId)} disabled={loading}
+                                className="w-full bg-white text-black font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-zinc-200"
+                            >
+                                {loading ? <span className="animate-spin">↻</span> : <span>ОНОВИТИ ДАНІ</span>}
+                            </button>
+                            <div className="text-center"><AutoRefreshTimer onRefreshTrigger={() => loadData(selectedCityId)} isActive={!loading} /></div>
+                        </div>
+                    )}
+                </ErrorBoundary>
             </div>
-          )}
+        )}
 
-          <div className="mt-16 text-center px-8 pb-8">
-             <button 
-                onClick={() => setShowAbout(true)}
-                className="text-zinc-600 text-[10px] uppercase tracking-widest font-bold mb-2 hover:text-zinc-400 transition-colors"
-             >
-                Про сервіс
-             </button>
-            <p className="text-zinc-700 text-xs leading-relaxed max-w-xs mx-auto">
-              Дані генеруються ШІ на основі відкритих джерел. 
-            </p>
-          </div>
-        </main>
+        {/* --- VIEW: ABOUT --- */}
+        {activeTab === 'about' && (
+            <div className="w-full animate-slide-right">
+                <div className="bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-[2.5rem] p-8 text-center">
+                    <h2 className="text-2xl font-black text-white mb-6">Про Svitlo Info</h2>
+                    <div className="space-y-6">
+                        <p className="text-zinc-400 text-sm leading-relaxed">
+                            Svitlo Info — це інструмент для моніторингу відключень електроенергії в Україні в реальному часі.
+                        </p>
+                        <p className="text-zinc-400 text-sm leading-relaxed">
+                            Ми використовуємо штучний інтелект Google Gemini для пошуку та аналізу офіційних джерел Обленерго, щоб надати вам найточнішу інформацію.
+                        </p>
+                        <div className="p-4 bg-white/5 rounded-2xl">
+                             <p className="text-zinc-500 text-xs italic">
+                                Дані носять інформаційний характер. Завжди перевіряйте офіційні джерела.
+                            </p>
+                        </div>
+                        
+                        <div className="pt-8 border-t border-white/5 mt-8">
+                             <p className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em]">Design & Dev</p>
+                             <p className="text-sm font-black text-white uppercase tracking-widest mt-2">OneFrameStudio</p>
+                             <p className="text-[9px] font-bold text-zinc-700 uppercase tracking-widest mt-1">Version 1.2 global</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
       </div>
 
-      {/* ABOUT MODAL */}
-      {showAbout && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 animate-cinematic-in">
-           <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setShowAbout(false)}></div>
-           <div className="relative w-full max-w-sm bg-zinc-900 rounded-[2.5rem] border border-zinc-800 p-8 shadow-2xl flex flex-col">
-               <button 
-                 onClick={() => setShowAbout(false)}
-                 className="absolute top-4 right-4 w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400"
-               >
-                  ✕
-               </button>
-               <h2 className="text-xl font-black text-white mb-4">Про Svitlo Info</h2>
-               <div className="prose prose-invert prose-sm text-zinc-400 leading-relaxed space-y-4">
-                  <p>
-                    Svitlo Info — це інструмент для моніторингу стану енергосистеми України в реальному часі.
-                  </p>
-                  <p>
-                    <strong className="text-white">Як це працює:</strong><br/>
-                    Ми використовуємо технологію Google Gemini Search Grounding. Штучний інтелект сканує офіційні сайти Обленерго, Telegram-канали та новини, щоб зібрати актуальні графіки.
-                  </p>
-                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-800">
-                    <strong className="text-yellow-500">Важливо:</strong>
-                    <p className="text-xs mt-1">Сервіс є інформаційним. ШІ може помилятися. Завжди перевіряйте дані в першоджерелах вашого оператора розподілу.</p>
+      {/* FLOATING BOTTOM NAVIGATION BAR (PREMIUM ISLAND V2) */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-[240px]">
+        <div className="relative bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 flex items-center justify-between shadow-2xl shadow-black/50 overflow-hidden">
+            
+            {/* The Sliding Pill (Active Background) */}
+            <div 
+                className={`absolute top-1.5 bottom-1.5 rounded-full border shadow-[0_0_15px_rgba(255,255,255,0.05)] transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${navPillColor} ${activeTab === 'home' ? 'left-1.5 w-[calc(50%-4px)]' : 'left-[calc(50%+2px)] w-[calc(50%-4px)]'}`}
+            ></div>
+
+            {/* Home Button */}
+            <button 
+                onClick={() => setActiveTab('home')}
+                className="relative z-10 flex items-center justify-center gap-2 h-10 w-1/2 rounded-full transition-all duration-300 active:scale-90"
+            >
+                <IconHome active={activeTab === 'home'} colorClass={navIconColor} />
+                <span className={`text-[10px] font-black uppercase tracking-wider transition-all duration-500 overflow-hidden ${activeTab === 'home' ? 'max-w-xs opacity-100 ml-1 text-white' : 'max-w-0 opacity-0 ml-0 text-zinc-500'}`}>
+                    Головна
+                </span>
+            </button>
+
+            {/* About Button */}
+            <button 
+                onClick={() => setActiveTab('about')}
+                className="relative z-10 flex items-center justify-center gap-2 h-10 w-1/2 rounded-full transition-all duration-300 active:scale-90"
+            >
+                 <IconAbout active={activeTab === 'about'} colorClass={navIconColor} />
+                 <span className={`text-[10px] font-black uppercase tracking-wider transition-all duration-500 overflow-hidden ${activeTab === 'about' ? 'max-w-xs opacity-100 ml-1 text-white' : 'max-w-0 opacity-0 ml-0 text-zinc-500'}`}>
+                    Інфо
+                </span>
+            </button>
+
+        </div>
+      </div>
+
+      {/* REFRESH LOADING OVERLAY */}
+      {loading && outageData && createPortal(
+          <div className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center transition-all duration-500 animate-cinematic-in">
+              <div className="relative mb-6">
+                  <div className="w-24 h-24 rounded-full border-4 border-white/5 border-t-yellow-500 animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                     <svg className="w-8 h-8 text-yellow-500 animate-pulse" fill="none" viewBox="0 0 24 24">
+                        <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                     </svg>
                   </div>
-               </div>
-           </div>
-        </div>
+              </div>
+              <p className="text-yellow-500 font-black text-sm uppercase tracking-[0.4em] animate-pulse">
+                  Оновлення Даних
+              </p>
+          </div>,
+          document.body
       )}
-
-      {/* NEWS MODAL */}
-      {showNews && (
-        <div className="fixed inset-0 z-[150] flex items-start justify-center p-4 pt-20 animate-cinematic-in">
-           <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setShowNews(false)}></div>
-           <div className="relative w-full max-w-sm bg-zinc-900 rounded-[2.5rem] border border-zinc-800 shadow-2xl flex flex-col max-h-[80vh] overflow-hidden">
-               
-               <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900 z-10">
-                   <h2 className="text-lg font-black text-white flex items-center gap-2">
-                      ⚡ Новини
-                   </h2>
-                   <button 
-                     onClick={() => setShowNews(false)}
-                     className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:bg-zinc-700"
-                   >
-                      ✕
-                   </button>
-               </div>
-
-               <div className="overflow-y-auto p-6 custom-scrollbar">
-                  {newsLoading ? (
-                      <div className="flex flex-col items-center justify-center py-10 text-center">
-                          <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4"></div>
-                          <p className="text-zinc-400 text-sm animate-pulse">Шукаємо новини за сьогодні...</p>
-                      </div>
-                  ) : newsData ? (
-                      <div className="space-y-6">
-                          <p className="text-zinc-300 italic text-sm border-l-2 border-blue-500 pl-3">
-                              {newsData.summary}
-                          </p>
-                          
-                          <div>
-                              <h3 className="text-xs font-black uppercase tracking-widest text-red-500 mb-3">
-                                  🇺🇦 Україна / Війна
-                              </h3>
-                              <ul className="space-y-3">
-                                  {newsData.war.map((item, idx) => (
-                                      <li key={idx} className="text-sm text-zinc-300 leading-relaxed bg-zinc-800/30 p-3 rounded-xl border border-zinc-800">
-                                          {item}
-                                      </li>
-                                  ))}
-                              </ul>
-                          </div>
-
-                          <div>
-                              <h3 className="text-xs font-black uppercase tracking-widest text-yellow-500 mb-3">
-                                  🏙️ {CITIES.find(c => c.id === selectedCityId)?.nameUk || 'Місцеві події'}
-                              </h3>
-                              <ul className="space-y-3">
-                                  {newsData.local.length > 0 ? newsData.local.map((item, idx) => (
-                                      <li key={idx} className="text-sm text-zinc-300 leading-relaxed bg-zinc-800/30 p-3 rounded-xl border border-zinc-800">
-                                          {item}
-                                      </li>
-                                  )) : (
-                                      <li className="text-zinc-500 text-xs">Суттєвих локальних новин не знайдено.</li>
-                                  )}
-                              </ul>
-                          </div>
-                          
-                          <div className="text-center pt-4">
-                              <p className="text-[10px] text-zinc-600">Оновлено: {new Date(newsData.lastUpdated).toLocaleTimeString()}</p>
-                          </div>
-                      </div>
-                  ) : (
-                      <div className="text-center py-10 text-zinc-500">Не вдалося завантажити новини.</div>
-                  )}
-               </div>
-           </div>
-        </div>
-      )}
-
     </div>
   );
 };
