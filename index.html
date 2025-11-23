@@ -13,10 +13,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
-    <!-- Tailwind CSS (CDN for immediate rendering fallback) -->
+    <!-- Tailwind CSS (fallback) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Tailwind Config for CDN -->
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -60,13 +59,12 @@
       }
     </script>
     <style>
-      /* Prevent pull-to-refresh on mobile to allow swipe gestures */
       body {
         overscroll-behavior-y: none;
         touch-action: pan-y;
       }
     </style>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
     "react": "https://aistudiocdn.com/react@^19.2.0",
@@ -74,7 +72,8 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "vite": "https://aistudiocdn.com/vite@^7.2.4",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0"
   }
 }
 </script>
@@ -84,5 +83,3 @@
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
-
-
