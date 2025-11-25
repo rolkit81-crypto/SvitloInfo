@@ -88,54 +88,6 @@ const RedThunderstorm = memo(() => {
              <div className="absolute top-[-10%] right-[10%] w-[50%] h-[50%] bg-red-500 rounded-full blur-[120px] animate-lightning" style={{animationDelay: '1.5s', animationDuration: '7s'}}></div>
              <div className="absolute top-[-30%] left-[30%] w-[40%] h-[40%] bg-red-700 rounded-full blur-[100px] animate-lightning" style={{animationDelay: '3s', animationDuration: '5s'}}></div>
         </div>
-
-        <div className="absolute top-0 left-0 w-full h-full opacity-30 mix-blend-overlay">
-             <div className="absolute inset-0 animate-cloud-drift bg-repeat"
-                  style={{
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.005' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.5'/%3E%3C/svg%3E")`,
-                      backgroundSize: '400px 400px'
-                  }}>
-             </div>
-             <div className="absolute inset-0 animate-cloud-drift"
-                  style={{
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.01' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.5'/%3E%3C/svg%3E")`,
-                      backgroundSize: '500px 500px',
-                      animationDirection: 'reverse',
-                      animationDuration: '150s'
-                  }}>
-             </div>
-        </div>
-    </div>
-  );
-});
-
-const UpsideDownSpores = memo(() => {
-  const spores = React.useMemo(() => [...Array(60)].map((_, i) => ({
-    id: i, 
-    left: `${Math.random() * 100}%`, 
-    animationDuration: `${Math.random() * 15 + 10}s`, 
-    animationDelay: `-${Math.random() * 20}s`, 
-    opacity: Math.random() * 0.5 + 0.4, 
-    size: `${Math.random() * 4 + 2}px`
-  })), []);
-
-  return (
-    <div className="fixed inset-0 pointer-events-none z-[3] overflow-hidden" aria-hidden="true">
-      {spores.map((spore) => (
-        <div 
-            key={spore.id} 
-            className="absolute bg-white rounded-full blur-[0.5px] shadow-[0_0_5px_white]" 
-            style={{ 
-                left: spore.left, 
-                bottom: '-20px', 
-                width: spore.size, 
-                height: spore.size, 
-                opacity: spore.opacity, 
-                animation: `floatUp ${spore.animationDuration} linear infinite`, 
-                animationDelay: spore.animationDelay 
-            }} 
-        />
-      ))}
     </div>
   );
 });
@@ -149,15 +101,10 @@ const HawkinsSilhouette = memo(() => {
                  <stop offset="0%" stopColor="#1a0505" stopOpacity="0.8" />
                  <stop offset="100%" stopColor="#000000" stopOpacity="1" />
              </linearGradient>
-             <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-               <feGaussianBlur stdDeviation="5" result="blur" />
-               <feComposite in="SourceGraphic" in2="blur" operator="over" />
-             </filter>
           </defs>
           <path 
             fill="url(#silhouetteGrad)" 
             d="M0,320L0,220L40,240L80,180L120,250L160,200L200,260L240,190L280,240L320,160L360,230L400,180L440,250L480,210L520,270L560,190L600,240L640,170L680,230L720,180L760,250L800,200L840,260L880,190L920,240L960,160L1000,230L1040,180L1080,250L1120,200L1160,260L1200,190L1240,240L1280,170L1320,230L1360,180L1400,250L1440,200L1440,320Z"
-            filter="url(#glow)"
             className="drop-shadow-[0_-5px_15px_rgba(220,38,38,0.3)]"
           />
        </svg>
@@ -233,12 +180,8 @@ const App: React.FC = () => {
       
       <div className={`fixed inset-0 bg-gradient-to-b ${bgClass} transition-colors duration-1000 z-0`}></div>
       
-      <div className="fixed top-[-20%] left-[-10%] w-[600px] h-[600px] bg-red-900/10 rounded-full blur-[120px] animate-aurora z-0 mix-blend-screen"></div>
-      <div className="fixed bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-zinc-800/20 rounded-full blur-[100px] animate-aurora z-0" style={{animationDelay: '-5s'}}></div>
-      
       <RedThunderstorm />
       <HawkinsSilhouette />
-      <UpsideDownSpores />
 
       <div className="fixed top-0 left-0 w-full z-40 px-6 py-4 flex justify-end items-center backdrop-blur-md bg-black/0">
           <div className="flex items-center gap-3">
