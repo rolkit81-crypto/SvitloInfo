@@ -1,35 +1,34 @@
 import { GoogleGenAI } from "@google/genai";
 import { OutageInfo, PowerStatus, GroupData } from '../types';
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Map of city names (Ukrainian) to specific Telegram channels or Official Websites
 const CITY_CHANNELS: Record<string, string> = {
-  'Київ': 'https://t.me/+M2qHRqGp_zUyNzky',
-  'Львів': 'https://t.me/+akG3S8R8YBllMTVi',
-  'Одеса': 'https://t.me/+bZCrqo_GW8ozZjdi',
-  'Вінниця': 'https://t.me/+8NJAStP3quk4ODdi',
-  'Івано-Франківськ': 'https://t.me/+rd1r6L1tuUM3NDYy',
-  'Чернігів': 'https://t.me/+nTDucuPdNqJhYTli',
-  'Хмельницький': 'https://t.me/+ZTPWfeRsiao2YmMy',
-  'Луцьк': 'https://t.me/+Zd173YiU4wU3ODEy',
-  'Тернопіль': 'https://t.me/+qQFsqM8R-sw2MTAy',
-  'Чернівці': 'https://t.me/+1voA6rAr0K0zZGJi',
-  'Рівне': 'https://t.me/+v3FaC0QuoAc5MjRi',
-  'Ужгород': 'https://t.me/+MEgwuHgiYBljNGEy',
-  'Житомир': 'https://t.me/+O3m7t3wd_II5MWRi',
-  'Запоріжжя': 'https://t.me/+pYa_4-kqM_EyN2Iy',
-  'Кривий Ріг': 'https://t.me/+jqRoidaFMFVkMWNi',
-  'Миколаїв': 'https://off.energy.mk.ua/',
-  'Херсон': 'https://t.me/+X1mem_gK1pVjYTEy',
-  'Черкаси': 'https://t.me/+eO8HSjUee_kzYjEy',
-  'Кременчук': 'https://t.me/+e4aB-x8raQ9iNDYy',
-  'Дніпро': 'https://t.me/+N8Bw8yUGrAA5MGJi',
-  'Харків': 'https://t.me/+8Yem4pA4qN42Mjcy',
-  'Полтава': 'https://t.me/+bYY_pd1WhAIwMDli',
-  'Суми': 'https://t.me/+jBJvg4K-q_s2YWQ6',
-  'Кропивницький': 'https://t.me/+ATxaydyVd_hlYjMy',
+  'Київ': 'site:dtek-kem.com.ua OR site:t.me/kyivnetworks OR site:yasno.com.ua',
+  'Львів': 'site:loe.lviv.ua OR site:t.me/lvivoblenergo_news',
+  'Одеса': 'site:dtek-oem.com.ua OR site:t.me/dtek_odesa',
+  'Вінниця': 'site:voe.com.ua',
+  'Івано-Франківськ': 'site:oe.if.ua OR site:t.me/prykarpattyaoblenergo_official',
+  'Чернігів': 'site:chernihivoblenergo.com.ua',
+  'Хмельницький': 'site:hoe.com.ua',
+  'Луцьк': 'site:energy.volyn.ua',
+  'Тернопіль': 'site:toe.com.ua',
+  'Чернівці': 'site:oblenergo.cv.ua',
+  'Рівне': 'site:roe.v.com.ua',
+  'Ужгород': 'site:zakarpat.energy',
+  'Житомир': 'site:ztoe.com.ua',
+  'Запоріжжя': 'site:zoe.com.ua',
+  'Кривий Ріг': 'site:dtek-dnem.com.ua',
+  'Миколаїв': 'site:energy.mk.ua',
+  'Херсон': 'site:ksoe.com.ua',
+  'Черкаси': 'site:cherkasyoblenergo.com',
+  'Кременчук': 'site:poe.pl.ua',
+  'Дніпро': 'site:dtek-dnem.com.ua OR site:t.me/dtek_dnipro',
+  'Харків': 'site:oblenergo.kharkov.ua',
+  'Полтава': 'site:poe.pl.ua',
+  'Суми': 'site:soe.com.ua',
+  'Кропивницький': 'site:kiroe.com.ua',
 };
 
 const getDefaultGroupsForCity = (cityName: string): string[] => {
@@ -44,56 +43,43 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => {
   let attempt = 0;
-  const maxRetries = 3;
+  const maxRetries = 1;
 
   while (attempt <= maxRetries) {
     try {
       const modelId = 'gemini-2.5-flash';
       const now = new Date();
+      // Use Kyiv time explicitly
+      const options: Intl.DateTimeFormatOptions = { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hour12: false };
+      const timeStr = now.toLocaleTimeString('uk-UA', options);
       const dateStr = now.toLocaleDateString('uk-UA', { 
         weekday: 'long', day: 'numeric', month: 'numeric', timeZone: 'Europe/Kyiv'
       });
-      const timeStr = now.toLocaleTimeString('uk-UA', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit' });
+      
+      const currentHour = parseInt(timeStr.split(':')[0], 10);
 
-      const specificChannel = CITY_CHANNELS[cityName] || '';
-
+      // Construct a highly specific search query
+      const specificSource = CITY_CHANNELS[cityName] ? `(${CITY_CHANNELS[cityName]})` : 'official oblenergo website telegram';
+      
       const prompt = `
-      SYSTEM_ROLE: Energy Grid Analyzer.
-      TARGET_CITY: ${cityName}, Ukraine.
-      CURRENT_TIME: ${timeStr} (${dateStr}).
-      MODE: STRICT_DATA_EXTRACTION.
-      LANGUAGE: UKRAINIAN.
-      SEARCH_STRATEGY: Prioritize the PRIMARY SOURCE (${specificChannel}) if available, otherwise search for official local Oblenergo channels.
+      CONTEXT: You are a bot checking electricity status in ${cityName}, Ukraine.
+      CURRENT TIME: ${dateStr}, ${timeStr} (Kyiv Time).
+      SOURCE HINT: Look specifically at ${specificSource} for "Графік погодинних відключень" (GPV).
 
+      GOAL: Find if specific groups are ON (light) or OFF (no light) RIGHT NOW.
+      
       INSTRUCTIONS:
-      1. SEARCH "Графік відключень ${cityName} сьогодні" OR "Світло ${cityName} зараз" OR "${specificChannel}".
-      2. LOOK FOR recent updates in official sources (especially ${specificChannel}) regarding:
-         - Emergency shutdowns (Екстрені).
-         - Stabilization schedules (Стабілізаційні).
-         - Cancellation of schedules (Скасування).
-      3. EXTRACT 3 data points: Weather, Global Summary, Group Schedule.
-      4. FOR EACH GROUP:
-         - Status: ON/OFF/MAYBE.
-         - Schedule: EXTRACT THE FULL TIME RANGE if available (e.g. "12:00-16:00"). 
-           If only the switch time is known, use that.
-      
-      CRITICAL RULES:
-      - Status codes: ON (Green), OFF (Red), MAYBE (Grey/Yellow).
-      - If status is ON but a schedule says "16:00-20:00", provide "16:00-20:00" in the time field so the user knows when it goes off.
-      - Lviv has 12 subgroups (1.1-6.2). Others usually 1-6.
-      - DO NOT REPEAT GROUPS.
-      
-      OUTPUT_FORMAT (Pipe separated, NO Markdown):
+      1. Search for today's outage schedule or "поточні відключення".
+      2. If news says "no limits" (без обмежень), "cancelled" (скасовано), "green" (зелений), then all groups are ON.
+      3. If specific queues/groups are mentioned for ${currentHour}:00, extract their status.
+      4. DO NOT say "Check website". Make a best guess based on the latest news (last 24h).
+
+      OUTPUT FORMAT (Strict Pipe Separated):
       WEATHER|Temp|Condition|FeelsLike|Wind
-      SUMMARY|Short 1-sentence summary based on the latest info.
-      GROUP|ID|STATUS_CODE|SCHEDULE_RANGE_OR_TIME|Description
-      GROUP|ID|STATUS_CODE|SCHEDULE_RANGE_OR_TIME|Description
-      ...
-      
-      Example Group Lines:
-      GROUP|1.1|ON|18:00-22:00|Світло є, відключення за графіком 18-22.
-      GROUP|2.1|OFF|15:00|Включення орієнтовно о 15:00.
-      GROUP|3.1|MAYBE|16:00-20:00|Можливі відключення 16-20.
+      SUMMARY|Short Ukrainian summary of the situation (e.g. "Діють графіки", "Світло є").
+      GROUP|ID|STATUS|NEXT_CHANGE|DESC
+
+      STATUS MUST BE: ON, OFF, or MAYBE.
       `;
 
       const response = await ai.models.generateContent({
@@ -101,7 +87,7 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
-          temperature: 0,
+          temperature: 0.0, // Zero temperature for maximum determinism and speed
         },
       });
 
@@ -109,51 +95,44 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
       const lines = fullText.split('\n');
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
-      let weather = { temp: '--', condition: 'Unknown', feelsLike: '--', windSpeed: '--' };
-      let summary = 'Очікування даних...';
+      let weather = { temp: '--', condition: 'Невідомо', feelsLike: '--', windSpeed: '--' };
+      let summary = 'Дані оновлюються...';
       let groups: GroupData[] = [];
       const seenGroupIds = new Set<string>();
 
       for (const line of lines) {
           const clean = line.trim();
+          if (!clean) continue;
+          
           if (clean.startsWith('WEATHER|')) {
-              const parts = clean.split('|');
-              weather = { 
-                  temp: parts[1] || '--', 
-                  condition: parts[2] || '', 
-                  feelsLike: parts[3] || '--', 
-                  windSpeed: parts[4] || '--' 
-              };
+              const p = clean.split('|');
+              weather = { temp: p[1] || '--', condition: p[2] || '', feelsLike: p[3] || '--', windSpeed: p[4] || '--' };
           } else if (clean.startsWith('SUMMARY|')) {
               summary = clean.substring(8).trim();
           } else if (clean.startsWith('GROUP|')) {
-              const parts = clean.split('|');
-              // Expecting: GROUP | ID | STATUS | TIME | DESC
-              if (parts.length >= 5) {
-                  let rawId = parts[1].trim();
-                  // More robust ID extraction: looks for patterns like "1", "1.1", "1A" -> "1"
+              const p = clean.split('|');
+              if (p.length >= 5) {
+                  let rawId = p[1].trim();
+                  // Clean ID: "1." -> "1"
                   const idMatch = rawId.match(/(\d+(\.\d+)?)/);
-                  const normalizedId = idMatch ? idMatch[0] : rawId.replace(/[^0-9.]/g, ''); 
+                  let normalizedId = idMatch ? idMatch[0] : rawId.replace(/[^0-9.]/g, ''); 
+                  if (normalizedId.endsWith('.')) normalizedId = normalizedId.slice(0, -1);
                   const finalId = normalizedId || rawId;
 
                   if (seenGroupIds.has(finalId)) continue;
                   seenGroupIds.add(finalId);
 
-                  const statusStr = parts[2].trim();
-                  const nextTime = parts[3].trim();
-                  const desc = parts[4].trim();
+                  const statusStr = p[2].trim();
+                  const nextTime = p[3].trim();
+                  const desc = p[4].trim();
                   
                   let status = PowerStatus.UNKNOWN;
                   if (statusStr === 'ON') status = PowerStatus.ON;
                   else if (statusStr === 'OFF') status = PowerStatus.OFF;
                   else status = PowerStatus.MAYBE;
 
-                  // Clean up time: ensure it looks like HH:MM or HH:MM-HH:MM
                   let validTime = undefined;
-                  // Regex to match HH:MM or HH:MM-HH:MM (ranges) or similar patterns
-                  if (nextTime.match(/(\d{1,2}:\d{2})/)) {
-                      validTime = nextTime;
-                  }
+                  if (nextTime.match(/(\d{1,2}:\d{2})/)) validTime = nextTime;
 
                   groups.push({ id: finalId, status, description: desc, nextSwitchTime: validTime });
               }
@@ -162,71 +141,61 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
 
       const defaultIds = getDefaultGroupsForCity(cityName);
 
+      // Logic: If no specific groups found, try to infer global state from summary
       if (groups.length === 0) {
          const lowerSum = summary.toLowerCase();
-         // If summary mentions emergency/accident/shutdown, fallback to OFF/MAYBE. 
-         // Otherwise assume light is ON if no schedule found.
-         const isNegative = lowerSum.includes('екстрені') || lowerSum.includes('аварійні') || lowerSum.includes('відключення за графіком');
-         
-         const fallbackStatus = isNegative ? PowerStatus.OFF : PowerStatus.ON;
-         const fallbackDesc = isNegative ? 'Див. офіційні джерела' : 'Світло є, графік відсутній';
+         let fallbackStatus = PowerStatus.MAYBE;
+         let fallbackDesc = 'Див. офіційні джерела';
 
-         groups = defaultIds.map(id => ({
-             id,
-             status: fallbackStatus,
-             description: fallbackDesc
-         }));
+         if (lowerSum.includes('скасовано') || lowerSum.includes('не діють') || lowerSum.includes('світло є') || lowerSum.includes('без обмежень')) {
+             fallbackStatus = PowerStatus.ON;
+             fallbackDesc = 'Графіки скасовано';
+         } else if (lowerSum.includes('діють графіки') || lowerSum.includes('черга') || lowerSum.includes('черги')) {
+             // If schedules are active but we couldn't parse specific groups, show MAYBE
+             fallbackStatus = PowerStatus.MAYBE;
+             fallbackDesc = 'Діють графіки (деталі уточнюються)';
+         } else if (lowerSum.includes('аварійні') || lowerSum.includes('екстрені')) {
+             fallbackStatus = PowerStatus.OFF;
+             fallbackDesc = 'Екстрені відключення';
+         }
+
+         groups = defaultIds.map(id => ({ id, status: fallbackStatus, description: fallbackDesc }));
       } else {
-        // Backfill missing groups
+        // Fill missing groups
         const existingIds = new Set(groups.map(g => g.id));
         defaultIds.forEach(id => {
             if (!existingIds.has(id)) {
-                // Fix: Check if sub-groups exist for this ID (e.g., "1.1" exists for "1")
-                // This prevents showing "Group 1: Unknown" when "Group 1.1" has data.
-                const hasSubgroups = groups.some(g => g.id.startsWith(`${id}.`));
-                
-                if (!hasSubgroups) {
-                    // Fix: Check if parent group exists (e.g. "1" exists for "1.1")
-                    // This handles cases where source reports "Group 1" but we need "1.1" and "1.2".
-                    const parentId = id.includes('.') ? id.split('.')[0] : null;
-                    const parentGroup = parentId ? groups.find(g => g.id === parentId) : null;
-                    
-                    // Fix: Check for sibling (Lviv specific inheritance: 1.2 inherits from 1.1 if 1 is missing)
-                    let siblingGroup = null;
-                    if (!parentGroup && id.includes('.')) {
-                        const [main, sub] = id.split('.');
-                        if (sub === '1') siblingGroup = groups.find(g => g.id === `${main}.2`);
-                        else if (sub === '2') siblingGroup = groups.find(g => g.id === `${main}.1`);
-                    }
-
-                    if (parentGroup) {
-                        groups.push({
-                            ...parentGroup,
-                            id: id,
-                            // Inherit description and status
-                        });
-                    } else if (siblingGroup) {
-                         groups.push({
-                            ...siblingGroup,
-                            id: id,
-                        });
-                    } else {
-                        groups.push({
-                            id,
-                            status: PowerStatus.ON, // Assume ON if not listed (usually lists contain outages)
-                            description: 'Світло є, графік відсутній', // User requested text
-                        });
-                    }
-                }
+                // Heuristic: inherit from general city state or sibling
+                groups.push({ id, status: PowerStatus.MAYBE, description: 'Уточнюється' });
             }
         });
+
+        // Lviv Sync Logic (1.1 should match 1.2 usually)
+        if (cityName.toLowerCase().includes('львів') || cityName.toLowerCase().includes('lviv')) {
+             ['1', '2', '3', '4', '5', '6'].forEach(main => {
+                 const s1 = groups.find(g => g.id === `${main}.1`);
+                 const s2 = groups.find(g => g.id === `${main}.2`);
+                 
+                 // If one is known and other is unknown/maybe, copy
+                 if (s1 && (s1.status === PowerStatus.ON || s1.status === PowerStatus.OFF) && s2 && s2.status === PowerStatus.MAYBE) {
+                     s2.status = s1.status; s2.description = s1.description;
+                 }
+                 if (s2 && (s2.status === PowerStatus.ON || s2.status === PowerStatus.OFF) && s1 && s1.status === PowerStatus.MAYBE) {
+                     s1.status = s2.status; s1.description = s2.description;
+                 }
+             });
+        }
       }
 
+      // Determine Global Status for the header
       let globalStatus = PowerStatus.MAYBE;
       const lowerSum = summary.toLowerCase();
-      if (lowerSum.includes('скасовано') || lowerSum.includes('світло є у всіх')) globalStatus = PowerStatus.ON;
-      else if (lowerSum.includes('блекаут')) globalStatus = PowerStatus.OFF;
-      else if (groups.every(g => g.status === PowerStatus.ON)) globalStatus = PowerStatus.ON;
+      const allOn = groups.every(g => g.status === PowerStatus.ON);
+      const anyOff = groups.some(g => g.status === PowerStatus.OFF);
+
+      if (lowerSum.includes('скасовано') || allOn) globalStatus = PowerStatus.ON;
+      else if (anyOff) globalStatus = PowerStatus.OFF;
+      else globalStatus = PowerStatus.ON; // Optimistic default if no negatives found
 
       const uniqueSources = new Map();
       groundingChunks.forEach(c => {
@@ -244,32 +213,16 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
 
     } catch (error: any) {
       console.error(`Gemini Error (Attempt ${attempt + 1}):`, error);
-      
-      // Retry Logic for Rate Limit
       if (error?.status === 429 || error?.toString().includes('429')) {
           attempt++;
           if (attempt <= maxRetries) {
-              const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s...
-              console.log(`Rate limit hit. Retrying in ${delay}ms...`);
-              await sleep(delay);
-              continue; // Retry loop
-          } else {
-              // Retries exhausted
-              return {
-                  status: PowerStatus.UNKNOWN,
-                  summary: "Сервер перевантажений. Спробуйте пізніше.",
-                  weather: { temp: '--', condition: '', feelsLike: '--', windSpeed: '--' },
-                  groups: [],
-                  lastUpdated: Date.now(),
-                  sources: []
-              };
+              await sleep(1000);
+              continue;
           }
       }
-
-      // Other errors
       return {
         status: PowerStatus.UNKNOWN,
-        summary: "Не вдалося отримати дані.",
+        summary: "Сервіс тимчасово недоступний.",
         weather: { temp: '--', condition: '', feelsLike: '--', windSpeed: '--' },
         groups: [],
         lastUpdated: Date.now(),
@@ -278,7 +231,6 @@ export const fetchOutageInfo = async (cityName: string): Promise<OutageInfo> => 
     }
   }
 
-  // Should not be reached due to loop logic, but typescript needs return
   return {
     status: PowerStatus.UNKNOWN,
     summary: "Невідома помилка.",
